@@ -22,7 +22,7 @@ GITLAB_SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd 
 source ${GITLAB_SCRIPT_DIR}/common.sh
 
 GIT_TAG=$(get_git_tag)
-IS_TAGGED=$(is_current_commit_tagged)
+IS_TAGGED=$(is_current_commit_release_tagged)
 rapids-logger "Git Version: ${GIT_TAG} - Is Tagged: ${IS_TAGGED}"
 
 # change this to ready to publish. this should be done programmatically once
@@ -34,10 +34,12 @@ else
 fi
 
 # Define variables
-AIQ_ARCH="any"
-AIQ_OS="any"
+NAT_ARCH="any"
+NAT_OS="any"
 
-AIQ_COMPONENTS=("nvidia-nat" "aiqtoolkit")
+# nvidia-nat itself and all of the plugins are under "nvidia-nat", while the compatibility packages are under "nat"
+NAT_COMPONENTS=("nvidia-nat" "nat")
+
 # We need to fix the name of the component in artifactory to aiqtoolkit
 ARTIFACTORY_COMPONENT_FIXED_NAME="aiqtoolkit"
 
@@ -90,9 +92,9 @@ install_jfrog_cli
 
 # Upload wheels if enabled
 if [[ "${UPLOAD_TO_ARTIFACTORY}" == "true" ]]; then
-    for AIQ_COMPONENT_NAME  in ${AIQ_COMPONENTS[@]}; do
-        WHEELS_DIR="${WHEELS_BASE_DIR}/${AIQ_COMPONENT_NAME}"
-        rapids-logger "NAT Component : ${AIQ_COMPONENT_NAME} Dir : ${WHEELS_DIR}"
+    for NAT_COMPONENT_NAME  in ${NAT_COMPONENTS[@]}; do
+        WHEELS_DIR="${WHEELS_BASE_DIR}/${NAT_COMPONENT_NAME}"
+        rapids-logger "NAT Component : ${NAT_COMPONENT_NAME} Dir : ${WHEELS_DIR}"
 
         for SUBDIR in $(find "${WHEELS_DIR}" -mindepth 1 -maxdepth 1 -type d); do
             SUBDIR_NAME=$(basename "${SUBDIR}")
@@ -110,15 +112,15 @@ if [[ "${UPLOAD_TO_ARTIFACTORY}" == "true" ]]; then
                 # Extract relative path to preserve directory structure, but replacing the first dir with aiqtoolkit
                 # as this is an already established path in artifactory
                 RELATIVE_PATH="${WHEEL_FILE#${WHEELS_BASE_DIR}/}"
-                RELATIVE_PATH=$(echo "${RELATIVE_PATH}" | sed -e 's|^nvidia-nat/|aiqtoolkit/|')
+                RELATIVE_PATH=$(echo "${RELATIVE_PATH}" | sed -e 's|^nvidia-nat/|aiqtoolkit/|' | sed -e 's|^nat/|aiqtoolkit/|')
                 ARTIFACTORY_PATH="${AIQ_ARTIFACTORY_NAME}/${RELATIVE_PATH}"
-"
+
                 echo "Uploading ${WHEEL_FILE} to ${ARTIFACTORY_PATH}..."
 
                 CI=true jf rt u --fail-no-op --url="${AIQ_ARTIFACTORY_URL}" \
                     --user="${URM_USER}" --password="${URM_API_KEY}" \
                     --flat=false "${WHEEL_FILE}" "${ARTIFACTORY_PATH}" \
-                    --target-props "arch=${AIQ_ARCH};os=${AIQ_OS};branch=${GIT_TAG};component_name=${ARTIFACTORY_COMPONENT_FIXED_NAME};version=${GIT_TAG};release_approver=${RELEASE_APPROVER};release_status=${RELEASE_STATUS}"
+                    --target-props "arch=${NAT_ARCH};os=${NAT_OS};branch=${GIT_TAG};component_name=${ARTIFACTORY_COMPONENT_FIXED_NAME};version=${GIT_TAG};release_approver=${RELEASE_APPROVER};release_status=${RELEASE_STATUS}"
             done
         done
     done
