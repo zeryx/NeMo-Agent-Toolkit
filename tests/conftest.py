@@ -28,8 +28,10 @@ import os
 import sys
 import typing
 import uuid
+import warnings
 from collections.abc import AsyncGenerator
 from collections.abc import Callable
+from collections.abc import Sequence
 from unittest import mock
 
 import pytest
@@ -44,6 +46,7 @@ from langchain_core.outputs import ChatGeneration
 from langchain_core.outputs import ChatResult
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel
+from pydantic.warnings import PydanticDeprecatedSince20
 
 TESTS_DIR = os.path.dirname(__file__)
 PROJECT_DIR = os.path.dirname(TESTS_DIR)
@@ -106,9 +109,8 @@ def restore_environ_fixture():
             del (os.environ[key])
 
 
-@pytest.mark.usefixtures("restore_environ")
 @pytest.fixture(name="set_test_api_keys")
-def set_test_api_keys_fixture():
+def set_test_api_keys_fixture(restore_environ):
     for key in ("NGC_API_KEY", "NVD_API_KEY", "NVIDIA_API_KEY", "OPENAI_API_KEY", "SERPAPI_API_KEY"):
         os.environ[key] = "test_key"
 
@@ -331,7 +333,10 @@ async def mock_llm():
             generation = ChatGeneration(message=message)
             return ChatResult(generations=[generation], llm_output={'mock_llm_response': True})
 
-        def bind_tools(self, tools: list[BaseTool], **kwargs: typing.Any) -> BaseChatModel:
+        def bind_tools(
+                self,
+                tools: Sequence[dict[str, typing.Any] | type | Callable | BaseTool],  # noqa: UP006
+                **kwargs: typing.Any) -> BaseChatModel:
             return self
 
         @property
@@ -350,18 +355,16 @@ def mock_tool():
             name: str = tool_name
             description: str = 'test tool:' + tool_name
 
-            async def _arun(
-                    self,
-                    query: str | dict = 'test',
-                    run_manager: AsyncCallbackManagerForToolRun | None = None,  # pylint: disable=unused-argument
-                    **kwargs):  # noqa: E501  # pylint: disable=arguments-differ
+            async def _arun(self,
+                            query: str | dict = 'test',
+                            run_manager: AsyncCallbackManagerForToolRun | None = None,
+                            **kwargs):  # noqa: E501
                 return query
 
-            def _run(
-                    self,
-                    query: str | dict = 'test',
-                    run_manager: CallbackManagerForToolRun | None = None,  # pylint: disable=unused-argument
-                    **kwargs):  # noqa: E501  # pylint: disable=arguments-differ
+            def _run(self,
+                     query: str | dict = 'test',
+                     run_manager: CallbackManagerForToolRun | None = None,
+                     **kwargs):  # noqa: E501
                 return query
 
         return MockTool()
@@ -371,8 +374,14 @@ def mock_tool():
 
 @pytest.fixture(scope="function", autouse=True)
 def patched_async_memory_client(monkeypatch):
-
-    from mem0.client.main import MemoryClient
+    # Suppress Pydantic's class-based Config deprecation only during mem0 import
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            category=PydanticDeprecatedSince20,
+            module=r"^pydantic\._internal\._config$",
+        )
+        from mem0.client.main import MemoryClient
 
     mock_method = mock.MagicMock(return_value=None)
     monkeypatch.setattr(MemoryClient, "_validate_api_key", mock_method)
